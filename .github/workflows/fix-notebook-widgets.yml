@@ -1,0 +1,61 @@
+name: Fix Notebook Widget Metadata
+
+on:
+  push:
+    paths:
+      - '**.ipynb'
+
+jobs:
+  fix-widgets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Fix widget metadata in notebooks
+        run: |
+          python - <<'EOF'
+          import json
+          import glob
+          import sys
+
+          notebooks = glob.glob("**/*.ipynb", recursive=True)
+          fixed_any = False
+
+          for path in notebooks:
+              with open(path, "r", encoding="utf-8") as f:
+                  nb = json.load(f)
+
+              widgets = nb.get("metadata", {}).get("widgets", {})
+              widget_state = widgets.get("application/vnd.jupyter.widget-state+json", {})
+
+              if widget_state and "state" not in widget_state:
+                  nb["metadata"]["widgets"]["application/vnd.jupyter.widget-state+json"] = {
+                      "state": widget_state,
+                      "version_major": 2,
+                      "version_minor": 0
+                  }
+                  with open(path, "w", encoding="utf-8") as f:
+                      json.dump(nb, f, indent=1)
+                      f.write("\n")
+                  print(f"Fixed: {path}")
+                  fixed_any = True
+              else:
+                  print(f"OK (no fix needed): {path}")
+
+          sys.exit(0)
+          EOF
+
+      - name: Commit fixes if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || (git add "*.ipynb" && git commit -m "Auto-fix: add missing state key in widget metadata" && git push)
